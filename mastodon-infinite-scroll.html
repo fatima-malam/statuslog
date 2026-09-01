@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <title>منشورات ماستدون</title>
+
+  <style>
+    /* ═══════════════════════════════════════
+       الصفحة
+       ═══════════════════════════════════════ */
+
+    body {
+      margin: 0 auto;
+      padding: 0 20px;
+      font-family: system-ui, sans-serif;
+    }
+
+
+    /* ═══════════════════════════════════════
+       حاوية المنشورات
+       ═══════════════════════════════════════ */
+
+    #mastodon-feed {
+      max-width: 900px;
+      margin: auto;
+    }
+
+
+    /* ═══════════════════════════════════════
+       بطاقة المنشور
+       ═══════════════════════════════════════ */
+
+    .masto-card {
+      border: 2px solid #69d6d6;
+      border-radius: 12px;
+      padding: 14px;
+      margin: 12px 0;
+      background: #fff;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+    }
+
+
+    /* التاريخ */
+
+    .masto-card .date {
+      font-size: 12px;
+      color: #6b7280;
+      margin-bottom: 8px;
+    }
+
+
+    /* محتوى المنشور */
+
+    .masto-card .content {
+      line-height: 1.7;
+    }
+
+
+    /* الروابط داخل المنشور */
+
+    .masto-card .content a {
+      text-decoration: none;
+    }
+
+
+    /* ═══════════════════════════════════════
+       الوسائط
+       ═══════════════════════════════════════ */
+
+    .masto-card img,
+    .masto-card video {
+      max-width: 100%;
+      border-radius: 10px;
+      display: block;
+      margin: 10px auto;
+    }
+
+    .masto-card audio {
+      width: 100%;
+      margin: 10px 0;
+    }
+
+
+    /* ═══════════════════════════════════════
+       معاينة الرابط
+       ═══════════════════════════════════════ */
+
+    .masto-link-card {
+      display: block;
+      margin-top: 12px;
+      border: 1px solid #d1d5db;
+      border-radius: 10px;
+      overflow: hidden;
+      text-decoration: none;
+      color: inherit;
+    }
+
+    .masto-link-card img {
+      width: 100%;
+      max-height: 400px;
+      object-fit: cover;
+      margin: 0;
+      border-radius: 0;
+    }
+
+    .masto-link-card-info {
+      padding: 12px;
+    }
+
+    .masto-link-card-title {
+      display: block;
+      margin-bottom: 5px;
+    }
+
+    .masto-link-card-description {
+      margin: 0;
+      font-size: 14px;
+      color: #6b7280;
+    }
+
+    .masto-link-card-url {
+      display: block;
+      margin-top: 8px;
+      font-size: 12px;
+      color: #6b7280;
+      direction: ltr;
+      text-align: left;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+
+    /* ═══════════════════════════════════════
+       رسالة التحميل
+       ═══════════════════════════════════════ */
+
+    #loading {
+      text-align: center;
+      padding: 20px;
+      color: #6b7280;
+    }
+
+
+    /* ═══════════════════════════════════════
+       نقطة مراقبة التمرير
+       ═══════════════════════════════════════ */
+
+    #load-more {
+      height: 1px;
+    }
+  </style>
+</head>
+
+<body>
+
+  <main>
+
+    <h1>منشورات</h1>
+
+    <div id="mastodon-feed"></div>
+
+    <div id="loading">جاري تحميل المزيد…</div>
+
+    <div id="load-more"></div>
+
+  </main>
+
+
+  <script>
+
+    // ═══════════════════════════════════════
+    // الإعدادات
+    // ═══════════════════════════════════════
+
+    // ضع رابط حساب Mastodon هنا.
+    const account =
+      "https://indieweb.social/@Abdulla";
+
+    // عدد المنشورات في كل دفعة.
+    const postsPerPage = 20;
+
+
+    // ═══════════════════════════════════════
+    // حالة الخلاصة
+    // ═══════════════════════════════════════
+
+    let maxId = null;
+
+    let isLoading = false;
+
+    let hasMore = true;
+
+    let mastodonAccount = null;
+
+    let instance = null;
+
+
+    // ═══════════════════════════════════════
+    // استخراج معلومات الحساب
+    // ═══════════════════════════════════════
+
+    function getAccountInfo() {
+
+      const url = new URL(account);
+
+      const username = url.pathname
+        .replace(/^\/@/, "")
+        .replace(/\/$/, "");
+
+      return {
+        instance: url.hostname,
+        username: username
+      };
+    }
+
+
+    // ═══════════════════════════════════════
+    // جلب معلومات الحساب
+    // ═══════════════════════════════════════
+
+    async function getMastodonAccount() {
+
+      const accountInfo = getAccountInfo();
+
+      instance = accountInfo.instance;
+
+      const response = await fetch(
+        `https://${instance}/api/v1/accounts/lookup?acct=${encodeURIComponent(accountInfo.username)}`
+      );
+
+      if (!response.ok) {
+        throw new Error(
+          "تعذر العثور على حساب Mastodon."
+        );
+      }
+
+      return response.json();
+    }
+
+
+    // ═══════════════════════════════════════
+    // إنشاء HTML للوسائط
+    // ═══════════════════════════════════════
+
+    function createMediaHTML(mediaAttachments) {
+
+      let mediaHTML = "";
+
+      mediaAttachments.forEach(media => {
+
+        if (media.type === "image") {
+
+          mediaHTML += `
+            <img
+              src="${media.preview_url}"
+              alt="${media.description || ""}"
+              loading="lazy"
+            >
+          `;
+
+        } else if (
+          media.type === "video" ||
+          media.type === "gifv"
+        ) {
+
+          mediaHTML += `
+            <video
+              src="${media.url}"
+              controls
+              preload="metadata"
+            ></video>
+          `;
+
+        } else if (media.type === "audio") {
+
+          mediaHTML += `
+            <audio
+              src="${media.url}"
+              controls
+              preload="metadata"
+            ></audio>
+          `;
+
+        }
+
+      });
+
+      return mediaHTML;
+    }
+
+
+    // ═══════════════════════════════════════
+    // إنشاء معاينة الرابط
+    // ═══════════════════════════════════════
+
+    function createLinkCardHTML(card) {
+
+      if (!card) {
+        return "";
+      }
+
+      const imageHTML = card.image
+        ? `
+          <img
+            src="${card.image}"
+            alt=""
+            loading="lazy"
+          >
+        `
+        : "";
+
+      const descriptionHTML = card.description
+        ? `
+          <p class="masto-link-card-description">
+            ${card.description}
+          </p>
+        `
+        : "";
+
+      return `
+        <a
+          class="masto-link-card"
+          href="${card.url}"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+
+          ${imageHTML}
+
+          <div class="masto-link-card-info">
+
+            <strong class="masto-link-card-title">
+              ${card.title}
+            </strong>
+
+            ${descriptionHTML}
+
+            <span class="masto-link-card-url">
+              ${card.url}
+            </span>
+
+          </div>
+
+        </a>
+      `;
+    }
+
+
+    // ═══════════════════════════════════════
+    // إنشاء بطاقة المنشور
+    // ═══════════════════════════════════════
+
+    function createPostHTML(post) {
+
+      const date =
+        new Date(post.created_at)
+          .toLocaleDateString("ar-SA");
+
+      const mediaHTML =
+        createMediaHTML(
+          post.media_attachments
+        );
+
+      const linkCardHTML =
+        createLinkCardHTML(post.card);
+
+      return `
+        <article class="masto-card">
+
+          <div class="date">
+            ${date}
+          </div>
+
+          <div class="content">
+            ${post.content}
+          </div>
+
+          ${mediaHTML}
+
+          ${linkCardHTML}
+
+        </article>
+      `;
+    }
+
+
+    // ═══════════════════════════════════════
+    // تحميل المنشورات
+    // ═══════════════════════════════════════
+
+    async function loadMastodonFeed() {
+
+      if (isLoading || !hasMore) {
+        return;
+      }
+
+      const loading =
+        document.getElementById("loading");
+
+      const container =
+        document.getElementById("mastodon-feed");
+
+      isLoading = true;
+
+      loading.style.display = "block";
+
+
+      try {
+
+        if (!mastodonAccount) {
+          mastodonAccount =
+            await getMastodonAccount();
+        }
+
+
+        const params = new URLSearchParams({
+          limit: postsPerPage,
+          exclude_replies: "true",
+          exclude_reblogs: "true"
+        });
+
+
+        if (maxId) {
+          params.set("max_id", maxId);
+        }
+
+
+        const response = await fetch(
+          `https://${instance}/api/v1/accounts/${mastodonAccount.id}/statuses?${params}`
+        );
+
+
+        if (!response.ok) {
+          throw new Error(
+            "تعذر تحميل المنشورات."
+          );
+        }
+
+
+        const posts = await response.json();
+
+
+        if (posts.length === 0) {
+
+          hasMore = false;
+
+          loading.textContent =
+            "وصلت إلى آخر المنشورات 🌷";
+
+          return;
+        }
+
+
+        maxId =
+          posts[posts.length - 1].id;
+
+
+        posts.forEach(post => {
+
+          container.insertAdjacentHTML(
+            "beforeend",
+            createPostHTML(post)
+          );
+
+        });
+
+      } catch (error) {
+
+        console.error(error);
+
+        loading.textContent =
+          "حدث خطأ أثناء تحميل المنشورات.";
+
+      } finally {
+
+        isLoading = false;
+
+        if (hasMore) {
+          loading.style.display = "none";
+        }
+
+      }
+    }
+
+
+    // ═══════════════════════════════════════
+    // التمرير اللانهائي
+    // ═══════════════════════════════════════
+
+    const loadMore =
+      document.getElementById("load-more");
+
+
+    const observer =
+      new IntersectionObserver(entries => {
+
+        if (entries[0].isIntersecting) {
+          loadMastodonFeed();
+        }
+
+      });
+
+
+    observer.observe(loadMore);
+
+
+    // ═══════════════════════════════════════
+    // التحميل الأول
+    // ═══════════════════════════════════════
+
+    loadMastodonFeed();
+
+  </script>
+
+</body>
+</html>
+
